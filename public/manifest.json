@@ -41,5 +41,21 @@
       ]
     }
   ],
+  "screenshots": [
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Vedha Music Player Mobile Screen"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Vedha Music Player Desktop Screen"
+    }
+  ],
   "prefer_related_applications": false
 }

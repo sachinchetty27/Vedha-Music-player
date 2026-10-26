@@ -1,14 +1,30 @@
 const express = require('express');
 const cors = require('cors');
 const CryptoJS = require('crypto-js');
+const path = require('path');
 const { Readable } = require('stream');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const publicPath = path.join(__dirname, 'public');
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static('public'));
+app.use(express.static(publicPath));
+
+// Primary routes for PWA and Frontend
+app.get('/', (req, res) => {
+    res.sendFile(path.join(publicPath, 'index.html'));
+});
+
+app.get('/manifest.json', (req, res) => {
+    res.sendFile(path.join(publicPath, 'manifest.json'));
+});
+
+app.get('/sw.js', (req, res) => {
+    res.setHeader('Content-Type', 'application/javascript');
+    res.sendFile(path.join(publicPath, 'sw.js'));
+});
 
 // Secret key used by JioSaavn DES-ECB encryption
 const SAAVN_SECRET_KEY = CryptoJS.enc.Utf8.parse('38346591');
