@@ -1,26 +1,45 @@
 {
+  "id": "/",
   "name": "Vedha Music Player",
-  "short_name": "Vedha Music",
-  "description": "Infinite 320 KBPS Studio Sound Universe with Synced Lyrics and 526+ Stars",
+  "short_name": "Vedha",
+  "description": "Next-generation 320 KBPS HD audio streaming universe with synchronized studio lyrics, 526+ artists, and lock screen media controls.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#07020d",
   "theme_color": "#FF007A",
-  "categories": ["music", "entertainment"],
+  "categories": [
+    "music",
+    "entertainment"
+  ],
   "icons": [
     {
-      "src": "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?q=80&w=192&auto=format&fit=crop",
+      "src": "/icon-192.png",
       "sizes": "192x192",
-      "type": "image/jpeg",
+      "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?q=80&w=512&auto=format&fit=crop",
+      "src": "/icon-512.png",
       "sizes": "512x512",
-      "type": "image/jpeg",
+      "type": "image/png",
       "purpose": "any maskable"
     }
-  ]
+  ],
+  "shortcuts": [
+    {
+      "name": "Search Music",
+      "short_name": "Search",
+      "description": "Quick search for songs, singers and movies",
+      "url": "/",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ],
+  "prefer_related_applications": false
 }
