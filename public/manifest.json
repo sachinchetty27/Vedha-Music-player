@@ -1,0 +1,26 @@
+{
+  "name": "Vedha Music Player",
+  "short_name": "Vedha Music",
+  "description": "Infinite 320 KBPS Studio Sound Universe with Synced Lyrics and 526+ Stars",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#07020d",
+  "theme_color": "#FF007A",
+  "categories": ["music", "entertainment"],
+  "icons": [
+    {
+      "src": "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?q=80&w=192&auto=format&fit=crop",
+      "sizes": "192x192",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?q=80&w=512&auto=format&fit=crop",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    }
+  ]
+}

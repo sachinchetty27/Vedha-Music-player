@@ -7,6 +7,13 @@
     <title>Vedha Music Player — Infinite HD Sound Universe</title>
     <meta name="description" content="Stream millions of full-length tracks in 320kbps HD across Tamil, Hindi, Telugu, English and more with real-time visualizer and synchronized lyrics.">
     
+    <!-- PWA & Mobile Standalone Settings -->
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#FF007A">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="mobile-web-app-capable" content="yes">
+    
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -90,7 +97,28 @@
             overscroll-behavior: none !important;
             display: flex;
             flex-direction: column;
-            backdrop-filter: blur(20px);
+            transform: translateZ(0);
+            backface-visibility: hidden;
+        }
+
+        /* Mobile Performance & Buttery Smooth Touch Scrolling */
+        .scrollable, .content-scroll, .stars-track, .mood-chips-track, .karaoke-lyrics-scroll, .stage-lyrics-card, .sheet-body, .queue-body, .feed-scroll {
+            -webkit-overflow-scrolling: touch !important;
+            overscroll-behavior-y: contain !important;
+            scroll-behavior: smooth;
+        }
+
+        .star-card, .song-card, .track-card, .btn-action, .karaoke-line, .sheet-lyrics-line {
+            transform: translateZ(0);
+            backface-visibility: hidden;
+            will-change: transform;
+        }
+
+        @media (max-width: 768px) {
+            .glass-card, .card-blur, .glass-panel {
+                backdrop-filter: blur(8px) !important;
+                -webkit-backdrop-filter: blur(8px) !important;
+            }
         }
 
         /* Screen Manager */
@@ -4828,6 +4856,18 @@
             }
         }
 
+        audioEngine.addEventListener('play', () => {
+            state.isPlaying = true;
+            updatePlayStateUI();
+            if (typeof startVisualizerLoop === 'function') startVisualizerLoop();
+        });
+
+        audioEngine.addEventListener('pause', () => {
+            state.isPlaying = false;
+            updatePlayStateUI();
+            if (typeof stopVisualizerLoop === 'function') stopVisualizerLoop();
+        });
+
         audioEngine.addEventListener('ended', () => {
             if (state.repeatMode === 'one') {
                 audioEngine.currentTime = 0;
@@ -6076,26 +6116,48 @@
             }
         }
 
+        // Dedicated touch tracking so auto-scroll never fights user manual reading
+        let userLyricsScrollTimer = null;
+        function setupLyricsTouchProtection(container) {
+            if (!container || container._hasTouchTracked) return;
+            container._hasTouchTracked = true;
+            const onTouch = () => {
+                state.userIsScrollingLyrics = true;
+                if (userLyricsScrollTimer) clearTimeout(userLyricsScrollTimer);
+                userLyricsScrollTimer = setTimeout(() => {
+                    state.userIsScrollingLyrics = false;
+                }, 3500);
+            };
+            container.addEventListener('touchstart', onTouch, { passive: true });
+            container.addEventListener('wheel', onTouch, { passive: true });
+            container.addEventListener('touchmove', onTouch, { passive: true });
+        }
+
         async function fetchLyrics(track) {
             const stageScroll = document.getElementById('stageLyricsScroll');
             const sheetBody = document.getElementById('sheetLyricsBody');
             const sourceBadge = document.getElementById('stageLyricsSource');
 
+            setupLyricsTouchProtection(stageScroll);
+            setupLyricsTouchProtection(sheetBody);
+
             const loadingHtml = `
                 <div style="margin-top:45px; text-align:center;">
                     <i class="fa-solid fa-spinner fa-spin" style="font-size:24px; color:var(--neon-pink);"></i>
-                    <p style="color:var(--text-muted); font-size:12.5px; margin-top:8px;">Finding original & English lyrics...</p>
+                    <p style="color:var(--text-muted); font-size:12.5px; margin-top:8px;">Synchronizing verified studio lyrics...</p>
                 </div>
             `;
-            stageScroll.innerHTML = loadingHtml;
-            sheetBody.innerHTML = loadingHtml;
-            sourceBadge.innerText = 'Searching';
+            if (stageScroll) stageScroll.innerHTML = loadingHtml;
+            if (sheetBody) sheetBody.innerHTML = loadingHtml;
+            if (sourceBadge) sourceBadge.innerText = 'Syncing';
 
             state.lyrics = null;
             state.parsedSyncedLyrics = [];
+            state.lastActiveLyricIdx = -1;
 
             try {
-                const res = await fetch(`/api/lyrics?id=${encodeURIComponent(track.id)}&title=${encodeURIComponent(track.title)}&artist=${encodeURIComponent(track.artist)}`);
+                const songDuration = Math.round(track.duration || audioEngine.duration || 0);
+                const res = await fetch(`/api/lyrics?id=${encodeURIComponent(track.id || '')}&title=${encodeURIComponent(track.title || '')}&artist=${encodeURIComponent(track.artist || '')}&duration=${songDuration}`);
                 const data = await res.json();
 
                 if (data.success && (data.original || data.syncedLyrics || data.plainLyrics)) {
@@ -6106,15 +6168,15 @@
                         <div style="margin-top:35px; text-align:center; padding:0 10px;">
                             <i class="fa-solid fa-music" style="font-size:28px; color:var(--neon-purple); margin-bottom:10px;"></i>
                             <p style="font-weight:700; color:white; font-size:14px;">Lyrics Not Available</p>
-                            <p style="font-size:11.5px; color:var(--text-muted); margin-top:4px;">No lyrics found for this track. Immerse yourself in the music!</p>
+                            <p style="font-size:11.5px; color:var(--text-muted); margin-top:4px;">No lyrics available for this song yet. Immerse in the studio sound!</p>
                             <button onclick="fetchLyrics(state.currentTrack)" style="margin-top:12px; background:rgba(255,255,255,0.08); border:1px solid var(--glass-border); color:white; padding:5px 14px; border-radius:var(--radius-full); font-size:11px; cursor:pointer;">
                                 <i class="fa-solid fa-rotate-right"></i> Retry
                             </button>
                         </div>
                     `;
-                    stageScroll.innerHTML = unavailableHtml;
-                    sheetBody.innerHTML = unavailableHtml;
-                    sourceBadge.innerText = 'Unavailable';
+                    if (stageScroll) stageScroll.innerHTML = unavailableHtml;
+                    if (sheetBody) sheetBody.innerHTML = unavailableHtml;
+                    if (sourceBadge) sourceBadge.innerText = 'Unavailable';
                 }
             } catch (err) {
                 console.error('Lyrics error:', err);
@@ -6124,20 +6186,21 @@
                         <p style="color:var(--text-muted); font-size:12px; margin-top:8px;">Failed to load lyrics</p>
                     </div>
                 `;
-                stageScroll.innerHTML = errorHtml;
-                sheetBody.innerHTML = errorHtml;
-                sourceBadge.innerText = 'Error';
+                if (stageScroll) stageScroll.innerHTML = errorHtml;
+                if (sheetBody) sheetBody.innerHTML = errorHtml;
+                if (sourceBadge) sourceBadge.innerText = 'Error';
             }
         }
 
         function parseAndRenderLyrics(lrcText, isSynced) {
             state.parsedSyncedLyrics = [];
-            const lines = lrcText.split('\n');
+            state.lastActiveLyricIdx = -1;
+            const lines = (lrcText || '').split('\n');
 
             const stageScroll = document.getElementById('stageLyricsScroll');
             const sheetBody = document.getElementById('sheetLyricsBody');
-            stageScroll.innerHTML = '';
-            sheetBody.innerHTML = '';
+            if (stageScroll) stageScroll.innerHTML = '';
+            if (sheetBody) sheetBody.innerHTML = '';
 
             let lineCount = 0;
             lines.forEach((line) => {
@@ -6152,29 +6215,36 @@
                         state.parsedSyncedLyrics.push({ time, text, index: idx });
 
                         // 1. Line for In-Player Stage
-                        const stageLine = document.createElement('div');
-                        stageLine.className = 'karaoke-line';
-                        stageLine.id = `karaoke-line-${idx}`;
-                        stageLine.innerHTML = `<span class="lyric-text">${escapeHtml(text)}</span>`;
-                        stageLine.onclick = (e) => {
-                            createLyricRipple(e, stageLine);
-                            audioEngine.currentTime = time;
-                        };
-                        stageScroll.appendChild(stageLine);
+                        if (stageScroll) {
+                            const stageLine = document.createElement('div');
+                            stageLine.className = 'karaoke-line';
+                            stageLine.id = `karaoke-line-${idx}`;
+                            stageLine.innerHTML = `<span class="lyric-text">${escapeHtml(text)}</span>`;
+                            stageLine.onclick = (e) => {
+                                createLyricRipple(e, stageLine);
+                                audioEngine.currentTime = time;
+                            };
+                            stageScroll.appendChild(stageLine);
+                        }
 
                         // 2. Line for Slide-Up Sheet
-                        const sheetLine = document.createElement('div');
-                        sheetLine.className = 'sheet-lyrics-line';
-                        sheetLine.id = `sheet-line-${idx}`;
-                        sheetLine.innerHTML = `<span class="lyric-text">${escapeHtml(text)}</span>`;
-                        sheetLine.onclick = (e) => {
-                            createLyricRipple(e, sheetLine);
-                            audioEngine.currentTime = time;
-                        };
-                        sheetBody.appendChild(sheetLine);
+                        if (sheetBody) {
+                            const sheetLine = document.createElement('div');
+                            sheetLine.className = 'sheet-lyrics-line';
+                            sheetLine.id = `sheet-line-${idx}`;
+                            sheetLine.innerHTML = `<span class="lyric-text">${escapeHtml(text)}</span>`;
+                            sheetLine.onclick = (e) => {
+                                createLyricRipple(e, sheetLine);
+                                audioEngine.currentTime = time;
+                            };
+                            sheetBody.appendChild(sheetLine);
+                        }
                     }
                 }
             });
+
+            // Ensure parsed lyrics are strictly ordered by time
+            state.parsedSyncedLyrics.sort((a, b) => a.time - b.time);
 
             if (state.parsedSyncedLyrics.length === 0) {
                 renderPlainLyrics(lrcText);
@@ -6184,108 +6254,137 @@
         function renderPlainLyrics(plainText) {
             const stageScroll = document.getElementById('stageLyricsScroll');
             const sheetBody = document.getElementById('sheetLyricsBody');
-            stageScroll.innerHTML = '';
-            sheetBody.innerHTML = '';
+            if (stageScroll) stageScroll.innerHTML = '';
+            if (sheetBody) sheetBody.innerHTML = '';
+
+            // Plain lyrics are STATIC - never fabricate false timing
+            state.parsedSyncedLyrics = [];
+            state.lastActiveLyricIdx = -1;
 
             const lines = (plainText || '').split('\n').map(l => l.trim()).filter(l => l.length > 0);
             if (lines.length === 0) {
-                stageScroll.innerHTML = '<p style="color:var(--text-muted); margin-top:40px;">No lyrics available</p>';
-                sheetBody.innerHTML = '<p style="color:var(--text-muted); margin-top:40px;">No lyrics available</p>';
+                if (stageScroll) stageScroll.innerHTML = '<p style="color:var(--text-muted); margin-top:40px; text-align:center;">No lyrics available</p>';
+                if (sheetBody) sheetBody.innerHTML = '<p style="color:var(--text-muted); margin-top:40px; text-align:center;">No lyrics available</p>';
                 return;
             }
 
-            state.parsedSyncedLyrics = [];
-            const estDuration = (audioEngine.duration && audioEngine.duration > 10) ? audioEngine.duration : 180;
-            const interval = estDuration / lines.length;
+            const headerHtml = `
+                <div style="text-align:center; padding:10px 0 14px 0; border-bottom:1px solid rgba(255,255,255,0.08); margin-bottom:12px;">
+                    <span style="display:inline-flex; align-items:center; gap:6px; background:rgba(255,255,255,0.08); padding:4px 14px; border-radius:12px; font-size:11.5px; color:#A78BFA; font-weight:700;">
+                        <i class="fa-solid fa-book-open"></i> Full Lyrics (Reading Mode)
+                    </span>
+                    <p style="font-size:11px; color:var(--text-muted); margin-top:4px;">Live karaoke sync unavailable for this version. Scroll freely to read along!</p>
+                </div>
+            `;
+            if (stageScroll) stageScroll.insertAdjacentHTML('beforeend', headerHtml);
+            if (sheetBody) sheetBody.insertAdjacentHTML('beforeend', headerHtml);
 
             lines.forEach((lineText, idx) => {
-                const estTime = idx * interval;
-                state.parsedSyncedLyrics.push({ time: estTime, text: lineText, index: idx });
-
                 // 1. Line for In-Player Stage
-                const stageLine = document.createElement('div');
-                stageLine.className = 'karaoke-line';
-                stageLine.id = `karaoke-line-${idx}`;
-                stageLine.innerHTML = `<span class="lyric-text">${escapeHtml(lineText)}</span>`;
-                stageLine.onclick = (e) => {
-                    createLyricRipple(e, stageLine);
-                    audioEngine.currentTime = estTime;
-                };
-                stageScroll.appendChild(stageLine);
+                if (stageScroll) {
+                    const stageLine = document.createElement('div');
+                    stageLine.className = 'karaoke-line plain-mode';
+                    stageLine.style.opacity = '0.9';
+                    stageLine.style.cursor = 'default';
+                    stageLine.style.padding = '8px 14px';
+                    stageLine.style.fontSize = '14.5px';
+                    stageLine.innerHTML = `<span class="lyric-text">${escapeHtml(lineText)}</span>`;
+                    stageScroll.appendChild(stageLine);
+                }
 
                 // 2. Line for Slide-Up Sheet
-                const sheetLine = document.createElement('div');
-                sheetLine.className = 'sheet-lyrics-line';
-                sheetLine.id = `sheet-line-${idx}`;
-                sheetLine.innerHTML = `<span class="lyric-text">${escapeHtml(lineText)}</span>`;
-                sheetLine.onclick = (e) => {
-                    createLyricRipple(e, sheetLine);
-                    audioEngine.currentTime = estTime;
-                };
-                sheetBody.appendChild(sheetLine);
+                if (sheetBody) {
+                    const sheetLine = document.createElement('div');
+                    sheetLine.className = 'sheet-lyrics-line plain-mode';
+                    sheetLine.style.opacity = '0.9';
+                    sheetLine.style.cursor = 'default';
+                    sheetLine.style.padding = '10px 16px';
+                    sheetLine.style.fontSize = '15px';
+                    sheetLine.innerHTML = `<span class="lyric-text">${escapeHtml(lineText)}</span>`;
+                    sheetBody.appendChild(sheetLine);
+                }
             });
-
-            if (audioEngine.currentTime) {
-                updateSyncedLyricsProgress(audioEngine.currentTime);
-            }
         }
 
         function updateSyncedLyricsProgress(currentTime) {
-            if (state.parsedSyncedLyrics.length === 0) return;
+            if (!state.parsedSyncedLyrics || state.parsedSyncedLyrics.length === 0) return;
+
+            // Accurate lead calibration (+0.20s) so the active line highlights right on vocal attack
+            const calibratedTime = currentTime + 0.20;
 
             let activeLineIndex = -1;
             for (let i = 0; i < state.parsedSyncedLyrics.length; i++) {
-                if (currentTime >= state.parsedSyncedLyrics[i].time) {
+                if (calibratedTime >= state.parsedSyncedLyrics[i].time) {
                     activeLineIndex = state.parsedSyncedLyrics[i].index;
                 } else {
                     break;
                 }
             }
 
-            if (activeLineIndex !== -1) {
-                if (state.lastActiveLyricIdx === activeLineIndex) return;
-                state.lastActiveLyricIdx = activeLineIndex;
-
-                document.querySelectorAll('.karaoke-line, .sheet-lyrics-line').forEach(el => el.classList.remove('active'));
-
-                // Calculate duration to next line for animated fill & transitions
-                const currentItem = state.parsedSyncedLyrics.find(it => it.index === activeLineIndex);
-                const nextItem = state.parsedSyncedLyrics.find(it => it.index === activeLineIndex + 1);
-                const lineDuration = nextItem && currentItem ? Math.max(1.2, Math.min(10.0, nextItem.time - currentItem.time)) : 3.5;
-
-                // Highlight in Stage View with smooth spring scroll
-                const targetStageEl = document.getElementById(`karaoke-line-${activeLineIndex}`);
-                if (targetStageEl) {
-                    targetStageEl.style.setProperty('--line-duration', `${lineDuration}s`);
-                    targetStageEl.classList.add('active');
-                    if (state.playerStage === 'lyrics') {
-                        targetStageEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    }
+            // If we are before the first lyric line (e.g. musical intro), remove any active highlight
+            if (activeLineIndex === -1) {
+                if (state.lastActiveLyricIdx !== -1) {
+                    document.getElementById(`karaoke-line-${state.lastActiveLyricIdx}`)?.classList.remove('active');
+                    document.getElementById(`sheet-line-${state.lastActiveLyricIdx}`)?.classList.remove('active');
+                    state.lastActiveLyricIdx = -1;
                 }
+                return;
+            }
 
-                // Highlight in Slide-Up Sheet ONLY IF sheet is open
-                const sheetEl = document.getElementById('lyricsSheet');
-                const targetSheetEl = document.getElementById(`sheet-line-${activeLineIndex}`);
-                if (targetSheetEl) {
-                    targetSheetEl.style.setProperty('--line-duration', `${lineDuration}s`);
-                    targetSheetEl.classList.add('active');
-                    if (sheetEl && sheetEl.classList.contains('open')) {
-                        targetSheetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    }
-                }
+            if (state.lastActiveLyricIdx === activeLineIndex) return;
 
-                // Highlight in Karaoke Studio teleprompter ONLY IF studio modal is open
-                const karaokeModal = document.getElementById('karaokeRecordModal');
-                if (karaokeModal && karaokeModal.style.display !== 'none') {
-                    const karaokeScroll = document.getElementById('karaokeStudioLyricsScroll');
-                    const targetKaraokeEl = karaokeScroll?.querySelector(`#karaoke-line-${activeLineIndex}`);
-                    if (targetKaraokeEl) {
-                        targetKaraokeEl.classList.add('active');
-                        targetKaraokeEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // Remove active from previous line ONLY (fast O(1) DOM change, eliminating full querySelectorAll)
+            if (state.lastActiveLyricIdx !== -1) {
+                document.getElementById(`karaoke-line-${state.lastActiveLyricIdx}`)?.classList.remove('active');
+                document.getElementById(`sheet-line-${state.lastActiveLyricIdx}`)?.classList.remove('active');
+            }
+            state.lastActiveLyricIdx = activeLineIndex;
+
+            // Calculate duration to next line for smooth animated progress fill
+            const currentItem = state.parsedSyncedLyrics.find(it => it.index === activeLineIndex);
+            const nextItem = state.parsedSyncedLyrics.find(it => it.index === activeLineIndex + 1);
+            const lineDuration = nextItem && currentItem ? Math.max(1.0, Math.min(8.0, nextItem.time - currentItem.time)) : 3.2;
+
+            // 1. Highlight in Stage View with smooth container-relative scrolling
+            const targetStageEl = document.getElementById(`karaoke-line-${activeLineIndex}`);
+            if (targetStageEl) {
+                targetStageEl.style.setProperty('--line-duration', `${lineDuration}s`);
+                targetStageEl.classList.add('active');
+                if (state.playerStage === 'lyrics' && !state.userIsScrollingLyrics) {
+                    const stageScroll = document.getElementById('stageLyricsScroll');
+                    if (stageScroll) {
+                        const top = targetStageEl.offsetTop - (stageScroll.clientHeight / 2) + (targetStageEl.clientHeight / 2);
+                        stageScroll.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
                     }
                 }
             }
-        }
+
+            // 2. Highlight in Slide-Up Sheet ONLY IF sheet is open
+            const sheetEl = document.getElementById('lyricsSheet');
+            const targetSheetEl = document.getElementById(`sheet-line-${activeLineIndex}`);
+            if (targetSheetEl) {
+                targetSheetEl.style.setProperty('--line-duration', `${lineDuration}s`);
+                targetSheetEl.classList.add('active');
+                if (sheetEl && sheetEl.classList.contains('open') && !state.userIsScrollingLyrics) {
+                    const sheetBody = document.getElementById('sheetLyricsBody');
+                    if (sheetBody) {
+                        const top = targetSheetEl.offsetTop - (sheetBody.clientHeight / 2) + (targetSheetEl.clientHeight / 2);
+                        sheetBody.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+                    }
+                }
+            }
+
+            // 3. Highlight in Karaoke Studio teleprompter ONLY IF studio modal is open
+            const karaokeModal = document.getElementById('karaokeRecordModal');
+            if (karaokeModal && karaokeModal.style.display !== 'none') {
+                const karaokeScroll = document.getElementById('karaokeStudioLyricsScroll');
+                const targetKaraokeEl = karaokeScroll?.querySelector(`#karaoke-line-${activeLineIndex}`);
+                if (targetKaraokeEl) {
+                    targetKaraokeEl.classList.add('active');
+                    const top = targetKaraokeEl.offsetTop - (karaokeScroll.clientHeight / 2) + (targetKaraokeEl.clientHeight / 2);
+                    karaokeScroll.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+                }
+            }
 
         function scrollActiveLyricsIntoView() {
             const activeLine = document.querySelector('.karaoke-line.active');
@@ -6389,10 +6488,99 @@
                 state.djFeedbackGain.connect(state.djDelayNode);
 
                 state.isAudioSetup = true;
-                drawVisualizer();
+                startVisualizerLoop();
             } catch (err) {
                 console.warn('AudioContext setup fallback to animation:', err);
-                startFallbackVisualizer();
+                startVisualizerLoop();
+            }
+        }
+
+        let isVisualizerLoopActive = false;
+        let lastHaloEnergy = -1;
+
+        function startVisualizerLoop() {
+            if (isVisualizerLoopActive) return;
+            isVisualizerLoopActive = true;
+            requestAnimationFrame(visualizerTick);
+        }
+
+        function stopVisualizerLoop() {
+            isVisualizerLoopActive = false;
+        }
+
+        function visualizerTick() {
+            if (!state.isPlaying) {
+                isVisualizerLoopActive = false;
+                return;
+            }
+            requestAnimationFrame(visualizerTick);
+
+            // Skip heavy canvas drawing if stage is lyrics or other view and fullscreen visualizer is off
+            const isVisualizerActive = (state.playerStage === 'visualizer' || state.playerStage === 'cover' || state.isFullscreenVisualizer);
+
+            if (state.analyser) {
+                const bufferLength = state.analyser.frequencyBinCount;
+                const dataArray = new Uint8Array(bufferLength);
+                state.analyser.getByteFrequencyData(dataArray);
+
+                if (isVisualizerActive) {
+                    drawCircularSpectrum(dataArray, false);
+                    updateAmbientHalo(dataArray, false);
+                    drawActiveDynamicVisual(dataArray, false);
+                }
+
+                if (canvasCtx && (isVisualizerActive || state.playerStage === 'visualizer')) {
+                    canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+                    const barCount = 28;
+                    const barWidth = (canvas.width / barCount) - 3;
+                    let x = 0;
+
+                    for (let i = 0; i < barCount; i++) {
+                        const dataIndex = Math.floor((i / barCount) * (bufferLength / 1.4));
+                        let value = state.isPlaying ? dataArray[dataIndex] || 0 : 3;
+                        if (value < 3) value = 3;
+
+                        const barHeight = (value / 255) * canvas.height * 0.95;
+                        const gradient = canvasCtx.createLinearGradient(0, canvas.height, 0, canvas.height - barHeight);
+                        gradient.addColorStop(0, '#8B5CF6');
+                        gradient.addColorStop(0.5, '#FF007A');
+                        gradient.addColorStop(1, '#00F0FF');
+
+                        canvasCtx.fillStyle = gradient;
+                        drawRoundedRect(canvasCtx, x, canvas.height - barHeight, barWidth, barHeight, 2.5);
+                        x += barWidth + 3;
+                    }
+                }
+            } else {
+                if (isVisualizerActive) {
+                    drawCircularSpectrum(null, true);
+                    updateAmbientHalo(null, true);
+                    drawActiveDynamicVisual(null, true);
+                }
+
+                if (canvasCtx && (isVisualizerActive || state.playerStage === 'visualizer')) {
+                    canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+                    const barCount = 28;
+                    const barWidth = (canvas.width / barCount) - 3;
+                    let x = 0;
+                    const time = Date.now() * 0.005;
+
+                    for (let i = 0; i < barCount; i++) {
+                        let height = 3;
+                        if (state.isPlaying) {
+                            height = Math.abs(Math.sin(time + i * 0.3) * Math.cos(time * 0.7 + i * 0.2)) * canvas.height * 0.85 + 5;
+                        }
+
+                        const gradient = canvasCtx.createLinearGradient(0, canvas.height, 0, canvas.height - height);
+                        gradient.addColorStop(0, '#8B5CF6');
+                        gradient.addColorStop(0.5, '#FF007A');
+                        gradient.addColorStop(1, '#00F0FF');
+
+                        canvasCtx.fillStyle = gradient;
+                        drawRoundedRect(canvasCtx, x, canvas.height - height, barWidth, height, 2.5);
+                        x += barWidth + 3;
+                    }
+                }
             }
         }
 
@@ -6411,10 +6599,14 @@
                 const t = Date.now() * 0.006;
                 energy = (Math.sin(t) * 0.35 + 0.5);
             }
-            const scale = 1.0 + (energy * 0.35);
-            const opacity = 0.45 + (energy * 0.45);
-            halo.style.transform = `scale(${scale.toFixed(3)})`;
-            halo.style.opacity = opacity.toFixed(2);
+            // Throttled updates to prevent layout thrashing
+            if (Math.abs(energy - lastHaloEnergy) > 0.03) {
+                lastHaloEnergy = energy;
+                const scale = 1.0 + (energy * 0.32);
+                const opacity = 0.45 + (energy * 0.45);
+                halo.style.transform = `scale(${scale.toFixed(3)})`;
+                halo.style.opacity = opacity.toFixed(2);
+            }
         }
 
         function drawCircularSpectrum(dataArray, isFallback) {
@@ -6430,6 +6622,9 @@
             const rBase = 83;
             const barCount = 48;
             const time = Date.now() * 0.003;
+
+            // Zero shadowBlur: Prevents GPU rasterization slowdowns on mobile devices
+            circCtx.shadowBlur = 0;
 
             for (let i = 0; i < barCount; i++) {
                 const angle = (i / barCount) * Math.PI * 2 - Math.PI / 2;
@@ -6457,8 +6652,6 @@
                 circCtx.strokeStyle = `hsl(${hue}, 100%, 65%)`;
                 circCtx.lineWidth = 2.4;
                 circCtx.lineCap = 'round';
-                circCtx.shadowBlur = state.isPlaying ? 8 : 2;
-                circCtx.shadowColor = `hsl(${hue}, 100%, 55%)`;
 
                 circCtx.beginPath();
                 circCtx.moveTo(x1, y1);
@@ -6469,51 +6662,19 @@
                     const dotX = cx + Math.cos(angle) * (rBase + barLen + 2.5);
                     const dotY = cy + Math.sin(angle) * (rBase + barLen + 2.5);
                     circCtx.fillStyle = '#FFFFFF';
-                    circCtx.shadowBlur = 4;
-                    circCtx.shadowColor = '#FFFFFF';
                     circCtx.beginPath();
-                    circCtx.arc(dotX, dotY, 1.3, 0, Math.PI * 2);
+                    circCtx.arc(dotX, dotY, 1.4, 0, Math.PI * 2);
                     circCtx.fill();
                 }
             }
         }
 
         function drawVisualizer() {
-            requestAnimationFrame(drawVisualizer);
-            if (!state.analyser) return;
+            startVisualizerLoop();
+        }
 
-            const bufferLength = state.analyser.frequencyBinCount;
-            const dataArray = new Uint8Array(bufferLength);
-            state.analyser.getByteFrequencyData(dataArray);
-
-            // Draw 360° Circular Spectrum & Ambient Halo
-            drawCircularSpectrum(dataArray, false);
-            updateAmbientHalo(dataArray, false);
-            drawActiveDynamicVisual(dataArray, false);
-
-            canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
-
-            const barCount = 28;
-            const barWidth = (canvas.width / barCount) - 3;
-            let x = 0;
-
-            for (let i = 0; i < barCount; i++) {
-                const dataIndex = Math.floor((i / barCount) * (bufferLength / 1.4));
-                let value = state.isPlaying ? dataArray[dataIndex] || 0 : 3;
-                if (value < 3) value = 3;
-
-                const barHeight = (value / 255) * canvas.height * 0.95;
-
-                const gradient = canvasCtx.createLinearGradient(0, canvas.height, 0, canvas.height - barHeight);
-                gradient.addColorStop(0, '#8B5CF6');
-                gradient.addColorStop(0.5, '#FF007A');
-                gradient.addColorStop(1, '#00F0FF');
-
-                canvasCtx.fillStyle = gradient;
-                drawRoundedRect(canvasCtx, x, canvas.height - barHeight, barWidth, barHeight, 2.5);
-
-                x += barWidth + 3;
-            }
+        function startFallbackVisualizer() {
+            startVisualizerLoop();
         }
 
         function drawRoundedRect(ctx, x, y, width, height, radius) {
@@ -6527,42 +6688,6 @@
             ctx.quadraticCurveTo(x, y, x + radius, y);
             ctx.closePath();
             ctx.fill();
-        }
-
-        function startFallbackVisualizer() {
-            function loop() {
-                requestAnimationFrame(loop);
-                if (state.analyser) return;
-
-                // Dynamic 360° Circular Spectrum & Halo in fallback mode
-                drawCircularSpectrum(null, true);
-                updateAmbientHalo(null, true);
-                drawActiveDynamicVisual(null, true);
-
-                canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
-                const barCount = 28;
-                const barWidth = (canvas.width / barCount) - 3;
-                let x = 0;
-
-                const time = Date.now() * 0.005;
-
-                for (let i = 0; i < barCount; i++) {
-                    let height = 3;
-                    if (state.isPlaying) {
-                        height = Math.abs(Math.sin(time + i * 0.3) * Math.cos(time * 0.7 + i * 0.2)) * canvas.height * 0.85 + 5;
-                    }
-
-                    const gradient = canvasCtx.createLinearGradient(0, canvas.height, 0, canvas.height - height);
-                    gradient.addColorStop(0, '#8B5CF6');
-                    gradient.addColorStop(0.5, '#FF007A');
-                    gradient.addColorStop(1, '#00F0FF');
-
-                    canvasCtx.fillStyle = gradient;
-                    drawRoundedRect(canvasCtx, x, canvas.height - height, barWidth, height, 2.5);
-                    x += barWidth + 3;
-                }
-            }
-            loop();
         }
 
         // ==========================================

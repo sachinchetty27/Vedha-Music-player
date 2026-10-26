@@ -1082,7 +1082,8 @@ app.get('/api/lyrics', async (req, res) => {
         // Extract primary artist
         const primaryArtist = (artist || '').split(/[,-]/)[0].trim();
 
-        const cacheKey = `${id || ''}_${cleanTitle}_${primaryArtist}`;
+        const durationNum = req.query.duration ? Math.round(parseFloat(req.query.duration)) : null;
+        const cacheKey = `${id || ''}_${cleanTitle}_${primaryArtist}_${durationNum || ''}`;
         if (lyricsCache.has(cacheKey)) {
             return res.json(lyricsCache.get(cacheKey));
         }
@@ -1091,8 +1092,86 @@ app.get('/api/lyrics', async (req, res) => {
         let rawSynced = null;
         let rawPlain = null;
 
-        // 1. Try JioSaavn direct lyrics if song id exists
-        if (id) {
+        const LRCLIB_HEADERS = {
+            'User-Agent': 'VedhaMusicApp/1.0 (https://github.com/sachinchetty27)'
+        };
+
+        // 1. PRIORITY 1: Search LRCLIB for EXACT Synchronized Lyrics (timestamps)
+        if (cleanTitle) {
+            // Attempt 1A: Exact match via /api/get if duration is known
+            if (primaryArtist && durationNum) {
+                try {
+                    const exactUrl = `https://lrclib.net/api/get?track_name=${encodeURIComponent(cleanTitle)}&artist_name=${encodeURIComponent(primaryArtist)}&duration=${durationNum}`;
+                    const exactRes = await fetch(exactUrl, { headers: LRCLIB_HEADERS });
+                    if (exactRes.ok) {
+                        const exactData = await exactRes.json();
+                        if (exactData && exactData.syncedLyrics) {
+                            foundSource = 'LRCLIB (Exact Synced)';
+                            rawSynced = exactData.syncedLyrics;
+                            rawPlain = exactData.plainLyrics || null;
+                        }
+                    }
+                } catch (e) {
+                    console.warn('LRCLIB exact lookup warning:', e.message);
+                }
+            }
+
+            // Attempt 1B: Search by title + artist on LRCLIB
+            if (!rawSynced) {
+                try {
+                    const searchQ = primaryArtist ? `${cleanTitle} ${primaryArtist}` : cleanTitle;
+                    const lrcUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(searchQ)}`;
+                    const response = await fetch(lrcUrl, { headers: LRCLIB_HEADERS });
+                    if (response.ok) {
+                        const list = await response.json();
+                        if (Array.isArray(list) && list.length > 0) {
+                            // Find match with syncedLyrics
+                            const syncedMatch = list.find(item => item.syncedLyrics && (
+                                !primaryArtist || !item.artistName || item.artistName.toLowerCase().includes(primaryArtist.toLowerCase()) || primaryArtist.toLowerCase().includes(item.artistName.toLowerCase())
+                            )) || list.find(item => item.syncedLyrics);
+
+                            if (syncedMatch) {
+                                foundSource = 'LRCLIB (Synced)';
+                                rawSynced = syncedMatch.syncedLyrics;
+                                rawPlain = syncedMatch.plainLyrics || null;
+                            } else {
+                                // If list only has plain lyrics, save first plain match as fallback
+                                const plainMatch = list.find(item => item.plainLyrics);
+                                if (plainMatch) {
+                                    rawPlain = plainMatch.plainLyrics;
+                                }
+                            }
+                        }
+                    }
+                } catch (lrcErr) {
+                    console.warn('LRCLIB search lookup warning:', lrcErr.message);
+                }
+            }
+
+            // Attempt 1C: Search by cleanTitle alone if artist search yielded nothing
+            if (!rawSynced && primaryArtist) {
+                try {
+                    const lrcUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(cleanTitle)}`;
+                    const response = await fetch(lrcUrl, { headers: LRCLIB_HEADERS });
+                    if (response.ok) {
+                        const list = await response.json();
+                        if (Array.isArray(list) && list.length > 0) {
+                            const syncedMatch = list.find(item => item.syncedLyrics);
+                            if (syncedMatch) {
+                                foundSource = 'LRCLIB (Title Synced)';
+                                rawSynced = syncedMatch.syncedLyrics;
+                                if (!rawPlain) rawPlain = syncedMatch.plainLyrics || null;
+                            }
+                        }
+                    }
+                } catch (lrcErr2) {
+                    console.warn('LRCLIB title-only lookup warning:', lrcErr2.message);
+                }
+            }
+        }
+
+        // 2. PRIORITY 2: If no synced lyrics exist, fetch JioSaavn plain lyrics
+        if (!rawSynced && !rawPlain && id) {
             try {
                 const jioLyricsUrl = `https://www.jiosaavn.com/api.php?__call=lyrics.getLyrics&lyrics_id=${encodeURIComponent(id)}&_format=json&ctx=web6dot0`;
                 const jioRes = await fetch(jioLyricsUrl, {
@@ -1101,7 +1180,7 @@ app.get('/api/lyrics', async (req, res) => {
                 if (jioRes.ok) {
                     const jioData = await jioRes.json();
                     if (jioData && jioData.lyrics) {
-                        foundSource = 'JioSaavn';
+                        foundSource = 'JioSaavn (Plain)';
                         rawPlain = jioData.lyrics
                             .replace(/<br\s*[\/]?>/gi, '\n')
                             .replace(/&quot;/g, '"')
@@ -1110,75 +1189,24 @@ app.get('/api/lyrics', async (req, res) => {
                     }
                 }
             } catch (e) {
-                console.warn('JioSaavn lyrics lookup failed:', e.message);
+                console.warn('JioSaavn lyrics lookup warning:', e.message);
             }
         }
 
-        // 2. Try LRCLIB track_name search (indexed and fast)
-        if (!rawPlain && cleanTitle) {
+        // 3. PRIORITY 3: Fallback to Lyrics.ovh plain lyrics
+        if (!rawSynced && !rawPlain && primaryArtist && cleanTitle) {
             try {
-                const lrcUrl = `https://lrclib.net/api/search?track_name=${encodeURIComponent(cleanTitle)}`;
-                const response = await fetch(lrcUrl, {
-                    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
-                });
-
-                if (response.ok) {
-                    const list = await response.json();
-                    if (Array.isArray(list) && list.length > 0) {
-                        const matched = list.find(item => 
-                            primaryArtist && item.artistName && item.artistName.toLowerCase().includes(primaryArtist.toLowerCase())
-                        ) || list.find(item => item.syncedLyrics) || list[0];
-
-                        if (matched && (matched.syncedLyrics || matched.plainLyrics)) {
-                            foundSource = 'LRCLIB';
-                            rawSynced = matched.syncedLyrics || null;
-                            rawPlain = matched.plainLyrics || null;
-                        }
+                const ovhUrl = `https://api.lyrics.ovh/v1/${encodeURIComponent(primaryArtist)}/${encodeURIComponent(cleanTitle)}`;
+                const ovhRes = await fetch(ovhUrl);
+                if (ovhRes.ok) {
+                    const ovhData = await ovhRes.json();
+                    if (ovhData.lyrics) {
+                        foundSource = 'LyricsOVH';
+                        rawPlain = ovhData.lyrics;
                     }
                 }
-            } catch (lrcErr) {
-                console.warn('LRCLIB track_name lookup failed:', lrcErr.message);
-            }
-
-            // Fallback: LRCLIB general search with title + artist
-            if (!rawPlain) {
-                try {
-                    const lrcUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(`${cleanTitle} ${primaryArtist}`)}`;
-                    const response = await fetch(lrcUrl, {
-                        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
-                    });
-
-                    if (response.ok) {
-                        const list = await response.json();
-                        if (Array.isArray(list) && list.length > 0) {
-                            const matched = list.find(item => item.syncedLyrics || item.plainLyrics);
-                            if (matched) {
-                                foundSource = 'LRCLIB';
-                                rawSynced = matched.syncedLyrics || null;
-                                rawPlain = matched.plainLyrics || null;
-                            }
-                        }
-                    }
-                } catch (qErr) {
-                    console.warn('LRCLIB q search failed:', qErr.message);
-                }
-            }
-
-            // 3. Try Lyrics.ovh as 3rd tier fallback
-            if (!rawPlain && primaryArtist) {
-                try {
-                    const ovhUrl = `https://api.lyrics.ovh/v1/${encodeURIComponent(primaryArtist)}/${encodeURIComponent(cleanTitle)}`;
-                    const ovhRes = await fetch(ovhUrl);
-                    if (ovhRes.ok) {
-                        const ovhData = await ovhRes.json();
-                        if (ovhData.lyrics) {
-                            foundSource = 'LyricsOVH';
-                            rawPlain = ovhData.lyrics;
-                        }
-                    }
-                } catch (ovhErr) {
-                    console.warn('LyricsOVH lookup failed:', ovhErr.message);
-                }
+            } catch (ovhErr) {
+                console.warn('LyricsOVH lookup warning:', ovhErr.message);
             }
         }
 
@@ -1188,6 +1216,7 @@ app.get('/api/lyrics', async (req, res) => {
 
             const payload = {
                 success: true,
+                isSynced: !!rawSynced,
                 source: foundSource,
                 trackName: cleanTitle,
                 artistName: primaryArtist,
