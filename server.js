@@ -1361,6 +1361,10 @@ app.get('/api/health', (req, res) => {
 });
 
 // Start Server
-app.listen(PORT, () => {
-    console.log(`Vedha Music Player Backend running on http://localhost:${PORT}`);
-});
+if (require.main === module || !process.env.VERCEL) {
+    app.listen(PORT, () => {
+        console.log(`Vedha Music Player Backend running on http://localhost:${PORT}`);
+    });
+}
+
+module.exports = app;
