@@ -1,0 +1,20 @@
+{
+  "name": "vedha-music-player",
+  "version": "1.0.0",
+  "description": "Next-generation glassmorphic music player with 320 KBPS HD audio, 526+ artists universe, strict filmography engine, and real-time recommendations.",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "crypto-js": "^4.2.0",
+    "express": "^5.3.0",
+    "node-fetch": "^3.3.2"
+  }
+}

@@ -1,0 +1,14 @@
+# Dependencies
+node_modules/
+package-lock.json.bak
+
+# Scratch and temporary files
+scratch/
+*.bak
+*.tmp
+*.log
+
+# Environment variables & system files
+.env
+.DS_Store
+Thumbs.db

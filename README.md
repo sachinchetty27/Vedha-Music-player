@@ -1,6 +1,3 @@
-# Vedha-Music-player
-🎵 Vedha Music Player — Application Overview Vedha Music Player is a full-stack, glassmorphic music streaming web application crafted to deliver lossless 320 KBPS HD audio, an expansive 526+ Native Stars &amp; Playlists Universe, intelligent regional mood filtering, and an autonomous Strict Filmography &amp; Vocal Verification Engine.
-
 # 🎵 Vedha Music Player — Infinite HD Sound Universe
 
 ![Vedha Music Banner](https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?q=80&w=1200&auto=format&fit=crop)
